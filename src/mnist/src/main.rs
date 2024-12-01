@@ -1,4 +1,7 @@
 use candle_core::{Device, Result, Tensor};
+use candle_nn::{Linear, Module};
+
+/** https://github.com/huggingface/candle/blob/main/candle-nn/src/linear.rs
 
 struct Linear {
     weight: Tensor,
@@ -11,6 +14,7 @@ impl Linear {
         x.broadcast_add(&self.bias)
     }
 }
+*/
 
 struct Model {
     first: Linear,
@@ -30,13 +34,13 @@ fn main() -> Result<()> {
     // let device = Device::new_cuda(0)?;
     let device = Device::cuda_if_available(0)?;
 
-    let weight = Tensor::randn(0f32, 1.0, (784, 100), &device)?;
+    let weight = Tensor::randn(0f32, 1.0, (100, 784), &device)?;
     let bias = Tensor::randn(0f32, 1.0, (100,), &device)?;
-    let first = Linear { weight, bias };
+    let first = Linear::new(weight, Some(bias));
 
-    let weight = Tensor::randn(0f32, 1.0, (100, 10), &device)?;
+    let weight = Tensor::randn(0f32, 1.0, (10, 100), &device)?;
     let bias = Tensor::randn(0f32, 1.0, (10,), &device)?;
-    let second = Linear { weight, bias };
+    let second = Linear::new(weight, Some(bias));
 
     let model = Model { first, second };
 

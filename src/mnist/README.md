@@ -1,6 +1,7 @@
 # MNIST
 
 - candle: [mnist](https://huggingface.github.io/candle/guide/hello_world.html)
+- src: mnist-training/[main.rs](https://github.com/huggingface/candle/blob/main/candle-examples/examples/mnist-training/main.rs)
 
 ```bash
 cargo new mnist
