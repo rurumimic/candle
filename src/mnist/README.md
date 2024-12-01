@@ -33,6 +33,8 @@ compute_cap
 ```bash
 cargo add --git https://github.com/huggingface/candle.git candle-core \
           --features "cuda"
+
+cargo add --git https://github.com/huggingface/candle.git candle-nn
 ```
 
 check build:
