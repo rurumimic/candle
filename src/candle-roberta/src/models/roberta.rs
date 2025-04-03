@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
-use candle_nn::var_builder::VarBuilderArgs;
+use anyhow::{Error, Result};
+use candle_core::{DType, Tensor};
 use candle_nn::VarBuilder;
 use serde::Deserialize;
 
@@ -60,10 +60,29 @@ impl Default for RobertaConfig {
     }
 }
 
-pub struct RobertaModel {}
+pub struct RobertaModel {
+    pub padding_idx: usize,
+}
 
 impl RobertaModel {
     pub fn load(vb: VarBuilder, config: &RobertaConfig) -> Result<Self> {
-        Ok(Self {})
+        Ok(Self {
+            padding_idx: config.pad_token_id,
+        })
+    }
+
+    pub fn create_position_ids_from_inputs_embeds(&self, inputs_embeds: &Tensor) -> Result<Tensor> {
+        let input_shape = inputs_embeds.dims3()?;
+        let sequence_length = input_shape.1;
+
+        let position_ids = Tensor::arange(
+            self.padding_idx as u32 + 1,
+            sequence_length as u32 + self.padding_idx as u32 + 1,
+            inputs_embeds.device(),
+        )?;
+
+        Ok(position_ids
+            .unsqueeze(0)?
+            .expand((input_shape.0, input_shape.1))?)
     }
 }
