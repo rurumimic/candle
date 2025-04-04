@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::{Error, Result};
+use candle_core::scalar::{TensorOrScalar, TensorScalar};
 use candle_core::{DType, Tensor};
 use candle_nn::VarBuilder;
 use serde::Deserialize;
@@ -61,13 +62,13 @@ impl Default for RobertaConfig {
 }
 
 pub struct RobertaModel {
-    pub padding_idx: usize,
+    pub padding_idx: u32,
 }
 
 impl RobertaModel {
     pub fn load(vb: VarBuilder, config: &RobertaConfig) -> Result<Self> {
         Ok(Self {
-            padding_idx: config.pad_token_id,
+            padding_idx: config.pad_token_id as u32,
         })
     }
 
@@ -76,7 +77,7 @@ impl RobertaModel {
         let sequence_length = input_shape.1;
 
         let position_ids = Tensor::arange(
-            self.padding_idx as u32 + 1,
+            self.padding_idx + 1,
             sequence_length as u32 + self.padding_idx as u32 + 1,
             inputs_embeds.device(),
         )?;
@@ -85,4 +86,19 @@ impl RobertaModel {
             .unsqueeze(0)?
             .expand((input_shape.0, input_shape.1))?)
     }
+}
+
+fn create_position_ids_from_input_ids(
+    input_ids: &Tensor,
+    padding_idx: u32,
+    past_key_values_length: u8,
+) -> Result<Tensor> {
+    let mask = input_ids.ne(padding_idx)?;
+    let incremental_indices = mask
+        .cumsum(1)?
+        .broadcast_add(&Tensor::new(&[past_key_values_length], input_ids.device())?)?
+        .mul(&mask)?
+        .broadcast_add(&Tensor::new(&[padding_idx], input_ids.device())?)?;
+
+    Ok(incremental_indices)
 }
