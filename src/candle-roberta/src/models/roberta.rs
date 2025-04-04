@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::{Error, Result};
 use candle_core::scalar::{TensorOrScalar, TensorScalar};
 use candle_core::{DType, Tensor};
-use candle_nn::VarBuilder;
+use candle_nn::{embedding, layer_norm, Dropout, Embedding, LayerNorm, Module, VarBuilder};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -14,7 +14,7 @@ pub struct RobertaConfig {
     num_attention_heads: usize,
     intermediate_size: usize,
     hidden_act: String,
-    hidden_dropout_prob: f64,
+    hidden_dropout_prob: f32,
     attention_probs_dropout_prob: f64,
     max_position_embeddings: usize,
     type_vocab_size: usize,
@@ -71,21 +71,6 @@ impl RobertaModel {
             padding_idx: config.pad_token_id as u32,
         })
     }
-
-    pub fn create_position_ids_from_inputs_embeds(&self, inputs_embeds: &Tensor) -> Result<Tensor> {
-        let input_shape = inputs_embeds.dims3()?;
-        let sequence_length = input_shape.1;
-
-        let position_ids = Tensor::arange(
-            self.padding_idx + 1,
-            sequence_length as u32 + self.padding_idx as u32 + 1,
-            inputs_embeds.device(),
-        )?;
-
-        Ok(position_ids
-            .unsqueeze(0)?
-            .expand((input_shape.0, input_shape.1))?)
-    }
 }
 
 fn create_position_ids_from_input_ids(
@@ -101,4 +86,91 @@ fn create_position_ids_from_input_ids(
         .broadcast_add(&Tensor::new(&[padding_idx], input_ids.device())?)?;
 
     Ok(incremental_indices)
+}
+
+pub struct RobertaEmbeddings {
+    word_embeddings: Embedding,
+    position_embeddings: Option<Embedding>,
+    token_type_embeddings: Embedding,
+    layer_norm: LayerNorm,
+    dropout: Dropout,
+    position_embedding_type: String,
+    pub padding_idx: u32,
+}
+
+impl RobertaEmbeddings {
+    pub fn load(vb: VarBuilder, config: &RobertaConfig) -> Result<Self> {
+        let word_embeddings = embedding(
+            config.vocab_size,
+            config.hidden_size,
+            vb.pp("word_embeddings"),
+        )?;
+
+        let position_embeddings = embedding(
+            config.max_position_embeddings,
+            config.hidden_size,
+            vb.pp("position_embeddings"),
+        )?;
+
+        let token_type_embeddings = embedding(
+            config.type_vocab_size,
+            config.hidden_size,
+            vb.pp("token_type_embeddings"),
+        )?;
+
+        let layer_norm = layer_norm(
+            config.hidden_size,
+            config.layer_norm_eps,
+            vb.pp("LayerNorm"),
+        )?;
+
+        let dropout = Dropout::new(config.hidden_dropout_prob as f32);
+
+        let position_embedding_type = "absolute".to_string();
+
+        let padding_idx = config.pad_token_id as u32;
+
+        Ok(Self {
+            word_embeddings,
+            position_embeddings: Some(position_embeddings),
+            token_type_embeddings,
+            layer_norm,
+            dropout,
+            position_embedding_type,
+            padding_idx,
+        })
+    }
+
+    pub fn forward(
+        &self,
+        input_ids: &Tensor,
+        token_type_ids: &Tensor,
+        position_ids: &Tensor,
+        inputs_embeds: &Tensor,
+        past_key_values_length: u8,
+    ) -> Result<Tensor> {
+        //let position_ids = self.create_position_ids_from_inputs_embeds(inputs_embeds);
+
+        let token_type_embeddings = self.token_type_embeddings.forward(&token_type_ids)?;
+
+        let mut embeddings = (inputs_embeds + token_type_embeddings)?;
+        embeddings = self.layer_norm.forward(&embeddings)?;
+        //embeddings = self.dropout.forward(&embeddings, false)?;
+        Ok(embeddings)
+    }
+
+    pub fn create_position_ids_from_inputs_embeds(&self, inputs_embeds: &Tensor) -> Result<Tensor> {
+        let input_shape = inputs_embeds.dims3()?;
+        let sequence_length = input_shape.1;
+
+        let position_ids = Tensor::arange(
+            self.padding_idx + 1,
+            sequence_length as u32 + self.padding_idx as u32 + 1,
+            inputs_embeds.device(),
+        )?;
+
+        Ok(position_ids
+            .unsqueeze(0)?
+            .expand((input_shape.0, input_shape.1))?)
+    }
 }
