@@ -2,8 +2,11 @@ use std::collections::HashMap;
 
 use anyhow::{Error, Result};
 use candle_core::scalar::{TensorOrScalar, TensorScalar};
-use candle_core::{DType, Tensor};
-use candle_nn::{embedding, layer_norm, Dropout, Embedding, LayerNorm, Module, VarBuilder};
+use candle_core::{DType, Tensor, D};
+use candle_nn::ops::softmax;
+use candle_nn::{
+    embedding, layer_norm, linear, Dropout, Embedding, LayerNorm, Linear, Module, VarBuilder,
+};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -30,6 +33,7 @@ pub struct RobertaConfig {
     _num_labels: Option<usize>,
     id2label: Option<HashMap<String, String>>,
     label2id: Option<HashMap<String, usize>>,
+    is_decoder: bool,
 }
 
 impl Default for RobertaConfig {
@@ -57,6 +61,7 @@ impl Default for RobertaConfig {
             _num_labels: Some(3),
             id2label: None,
             label2id: None,
+            is_decoder: false,
         }
     }
 }
@@ -172,5 +177,142 @@ impl RobertaEmbeddings {
         Ok(position_ids
             .unsqueeze(0)?
             .expand((input_shape.0, input_shape.1))?)
+    }
+}
+
+struct RobertaSelfAttention {
+    num_attention_heads: usize,
+    attention_head_size: usize,
+    all_head_size: usize,
+    query: Linear,
+    key: Linear,
+    value: Linear,
+    dropout: Dropout,
+    position_embedding_type: Option<String>,
+    max_position_embeddings: usize,
+    distance_embedding: Embedding,
+    is_decoder: bool,
+}
+
+impl RobertaSelfAttention {
+    fn load(vb: VarBuilder, config: &RobertaConfig) -> Result<Self> {
+        let num_attention_heads = config.num_attention_heads;
+        let attention_head_size = config.hidden_size / config.num_attention_heads;
+        let all_head_size = num_attention_heads * attention_head_size;
+        let query = linear(config.hidden_size, all_head_size, vb.pp("query"))?;
+        let key = linear(config.hidden_size, all_head_size, vb.pp("key"))?;
+        let value = linear(config.hidden_size, all_head_size, vb.pp("value"))?;
+        let dropout = Dropout::new(config.attention_probs_dropout_prob as f32);
+        let position_embedding_type = config.position_embedding_type.clone();
+        let max_position_embeddings = config.max_position_embeddings;
+        let distance_embedding = embedding(
+            2 * config.max_position_embeddings + 1,
+            attention_head_size,
+            vb.pp("distance_embedding"),
+        )?;
+        let is_decoder = config.is_decoder;
+
+        Ok(Self {
+            num_attention_heads,
+            attention_head_size,
+            all_head_size,
+            query,
+            key,
+            value,
+            dropout,
+            position_embedding_type: Some(position_embedding_type),
+            max_position_embeddings,
+            distance_embedding,
+            is_decoder,
+        })
+    }
+
+    fn transpose_for_scores(&self, x: &Tensor) -> Result<Tensor> {
+        let mut new_x_shape = x.dims().to_vec();
+        new_x_shape[1] = self.num_attention_heads;
+        new_x_shape.push(self.attention_head_size);
+        let x = x.reshape(new_x_shape)?;
+        let x = x.permute((0, 2, 1, 3))?;
+        Ok(x.contiguous()?)
+    }
+
+    fn forward(
+        &self,
+        hidden_states: &Tensor,
+        attention_mask: Option<&Tensor>,
+        head_mask: Option<&Tensor>,
+        encoder_hidden_states: Option<&Tensor>,
+        encoder_attention_mask: Option<&Tensor>,
+        past_key_value: Option<(&Tensor, &Tensor)>,
+        output_attentions: bool,
+    ) -> Result<Tensor> {
+        let mixed_query_layer = self.query.forward(hidden_states)?;
+
+        let is_cross_attention = encoder_hidden_states.is_some();
+
+        let (key_layer, value_layer, attention_mask) = if is_cross_attention
+            && past_key_value.is_some()
+        {
+            let key_layer = past_key_value.unwrap().0.clone();
+            let value_layer = past_key_value.unwrap().1.clone();
+            let attention_mask = encoder_attention_mask.unwrap().clone();
+            (key_layer, value_layer, Some(attention_mask))
+        } else if is_cross_attention {
+            let key_layer =
+                self.transpose_for_scores(&self.key.forward(encoder_hidden_states.unwrap())?)?;
+            let value_layer =
+                self.transpose_for_scores(&self.value.forward(encoder_hidden_states.unwrap())?)?;
+            let attention_mask = encoder_attention_mask.unwrap().clone();
+            (key_layer, value_layer, Some(attention_mask))
+        } else if past_key_value.is_some() {
+            let mut key_layer = self.transpose_for_scores(&self.key.forward(hidden_states)?)?;
+            let mut value_layer = self.transpose_for_scores(&self.value.forward(hidden_states)?)?;
+            key_layer = Tensor::cat(&[past_key_value.unwrap().0.clone(), key_layer], 2)?;
+            value_layer = Tensor::cat(&[past_key_value.unwrap().1.clone(), value_layer], 2)?;
+            (
+                key_layer,
+                value_layer,
+                Some(attention_mask.unwrap().clone()),
+            )
+        } else {
+            let key_layer = self.transpose_for_scores(&self.key.forward(hidden_states)?)?;
+            let value_layer = self.transpose_for_scores(&self.value.forward(hidden_states)?)?;
+            (
+                key_layer,
+                value_layer,
+                Some(attention_mask.unwrap().clone()),
+            )
+        };
+
+        let query_layer = self.transpose_for_scores(&mixed_query_layer)?;
+
+        //let use_cache = past_key_value.is_some();
+
+        //let attention_scores = query_layer.matmul(&key_layer.t()?)?;
+        let attention_scores = query_layer.matmul(&key_layer.transpose(2, 3)?)?;
+        let attention_scores = (attention_scores / (self.attention_head_size as f64).sqrt())?;
+        let attention_scores = match attention_mask {
+            Some(mask) => attention_scores.add(&mask)?,
+            None => attention_scores,
+        };
+
+        let attention_probs = softmax(&attention_scores, D::Minus1)?;
+        let attention_probs = self.dropout.forward(&attention_probs, false)?;
+        let attention_probs = match head_mask {
+            Some(mask) => attention_probs.mul(mask)?,
+            None => attention_probs,
+        };
+
+        let context_layer = attention_probs
+            .matmul(&value_layer)?
+            .permute((0, 2, 1, 3))?
+            .contiguous()?;
+
+        let mut new_context_layer_shape =
+            context_layer.dims()[..context_layer.dims().len() - 2].to_vec();
+        new_context_layer_shape.push(self.all_head_size);
+        let context_layer = context_layer.reshape(new_context_layer_shape)?;
+
+        Ok(context_layer)
     }
 }

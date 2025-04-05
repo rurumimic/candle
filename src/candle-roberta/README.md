@@ -6,6 +6,9 @@
   - [xlm-roberta](https://huggingface.co/docs/transformers/model_doc/xlm-roberta)
 - github
   - [huggingface/transformers/src/transformers/models](https://github.com/huggingface/transformers/tree/main/src/transformers/models)
+    - [modeling_roberta.py](https://github.com/huggingface/transformers/blob/main/src/transformers/models/roberta/modeling_roberta.py)
+  - [huggingface/candle/candle-transformers/src/models](https://github.com/huggingface/candle/blob/main/candle-transformers/src/models)
+    - [xlm_roberta.rs](https://github.com/huggingface/candle/blob/main/candle-transformers/src/models/xlm_roberta.rs)
 
 ---
 
