@@ -19,20 +19,33 @@ cargo run
 ```
 
 ```bash
+Encoding: Encoding {
+    ids: [100, 657, 8326, 11, 23083, 328],
+    type_ids: [0, 0, 0, 0, 0, 0],
+    tokens: ["I", "Ġlove", "Ġprogramming", "Ġin", "ĠRust", "!"],
+    words: [Some(0), Some(1), Some(2), Some(3), Some(4), Some(5)],
+    offsets: [(0, 1), (2, 6), (7, 18), (19, 21), (22, 26), (26, 27)],
+    special_tokens_mask: [0, 0, 0, 0, 0, 0],
+    attention_mask: [1, 1, 1, 1, 1, 1],
+    overflowing: [],
+    sequence_ranges: {0: 0..6}
+}
+
 Input IDs: [[0, 31414, 232, 328, 740, 1140, 12695, 69, 46078, 1588, 2]]
+
 Output: Tensor[dims 1, 11, 768; f32]
-Output: [
-    [-0.0143, 0.6195, 0.043, -0.3593],
-    [0.1895, 0.2499, -0.1769, 0.0928],
-    [0.2789, -0.032, -0.0608, 0.2728],
-    [0.2464, 0.2675, -0.0672, 0.3071],
-    [0.3983, 0.4253, 0.03, -0.562],
-    [0.1971, 0.3008, 0.1505, 0.0962],
-    [0.0386, 0.4204, 0.0671, -0.2846],
-    [0.2827, 0.6717, -0.1281, 0.1588],
-    [0.155, 0.1456, 0.3433, -0.5734],
-    [-0.0523, 0.3015, -0.168, -0.2904],
-    [-0.0143, 0.6196, 0.043, -0.3593]
+
+Output: [[-0.0231, 0.0782, 0.0074, -0.109],
+    [-0.1854, 0.054, -0.0175, -0.2474],
+    [0.0548, 0.0799, 0.1687, 0.1306],
+    [0.0777, -0.0774, 0.1188, -0.001],
+    [-0.0866, 0.1161, 0.2179, -0.2877],
+    [-0.0897, 0.17, 0.0545, 0.0625],
+    [-0.1545, 0.0123, 0.1474, 0.1247],
+    [0.0918, 0.2135, 0.1403, -0.0507],
+    [0.0865, -0.1342, 0.2234, -0.2725],
+    [-0.0146, 0.1144, 0.214, -0.3466],
+    [-0.0116, 0.0799, -0.0033, -0.0984]
 ]
 ```
 
@@ -103,6 +116,7 @@ uv pip install "huggingface_hub[hf_xet]"
 
 ### Download a model
 
+- huggingface: [FacebookAI/roberta-base](https://huggingface.co/FacebookAI/roberta-base)
 - huggingface: [cardiffnlp/twitter-roberta-base-sentiment-latest](https://huggingface.co/cardiffnlp/twitter-roberta-base-sentiment-latest)
 - huggingface: [cardiffnlp/twitter-xlm-roberta-base-sentiment](https://huggingface.co/cardiffnlp/twitter-xlm-roberta-base-sentiment)
 - docs
@@ -112,6 +126,11 @@ uv pip install "huggingface_hub[hf_xet]"
 #### RoBERTa
 
 Download a model:
+
+```bash
+HF_HUB_ENABLE_HF_TRANSFER=1 \
+huggingface-cli download "FacebookAI/roberta-base" --local-dir models/FacebookAI/roberta-base
+```
 
 ```bash
 HF_HUB_ENABLE_HF_TRANSFER=1 \
@@ -352,6 +371,7 @@ XLMRobertaTokenizerFast(name_or_path='./models/cardiffnlp/twitter-xlm-roberta-ba
 
 ```pytorch_model
 >>> import torch
+>>> state_dict = torch.load("models/FacebookAI/roberta-base/pytorch_model.bin")
 >>> state_dict = torch.load("models/cardiffnlp/twitter-roberta-base-sentiment-latest/pytorch_model.bin")
 >>> state_dict.keys()
 

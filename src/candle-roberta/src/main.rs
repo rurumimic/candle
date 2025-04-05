@@ -13,31 +13,33 @@ fn round_to_decimal_places(n: f32, places: u32) -> f32 {
 
 fn main() -> Result<()> {
     let device = Device::Cpu;
-    let model_id = "./models/cardiffnlp/twitter-roberta-base-sentiment-latest";
+    let model_id = "./models/FacebookAI/roberta-base";
+    //let model_id = "./models/cardiffnlp/twitter-roberta-base-sentiment-latest";
     let repo = Repo::model(model_id.to_string());
 
-    let config_filename = "models/cardiffnlp/twitter-roberta-base-sentiment-latest/config.json";
+    let config_filename = "models/FacebookAI/roberta-base/config.json";
+    //let config_filename = "models/cardiffnlp/twitter-roberta-base-sentiment-latest/config.json";
     let config_filename = std::fs::read_to_string(config_filename)?;
     let config: RobertaConfig = serde_json::from_str(&config_filename)?;
 
-    //let tokenizer_filename = "models/cardiffnlp/twitter-roberta-base-sentiment-latest/tokenizer.json";
-    //let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(anyhow::Error::msg)?;
+    let tokenizer_filename = "models/FacebookAI/roberta-base/tokenizer.json";
+    let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(anyhow::Error::msg)?;
+
+    let weights_filename = "models/FacebookAI/roberta-base/model.safetensors";
+    let weights =
+        unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], DType::F32, &device)? };
+    let weights = weights.set_prefix("roberta");
 
     //let weights_filename =
-    //    "models/cardiffnlp/twitter-roberta-base-sentiment-latest/model.safetensors";
+    //    "models/cardiffnlp/twitter-roberta-base-sentiment-latest/pytorch_model.bin";
     //let weights =
-    //    unsafe { VarBuilder::from_mmaped_safetensors(&[weights_filename], DType::F32, &device)? };
-    //
-    let weights_filename =
-        "models/cardiffnlp/twitter-roberta-base-sentiment-latest/pytorch_model.bin";
-    let weights =
-        VarBuilder::from_pth(&weights_filename, DType::F32, &device)?.set_prefix("roberta");
+    //    VarBuilder::from_pth(&weights_filename, DType::F32, &device)?.set_prefix("roberta");
 
     let model = RobertaModel::load(weights, &config)?;
 
-    //let input = "I love programming in Rust!";
-    //let encoding = tokenizer.encode(input, false).map_err(anyhow::Error::msg)?;
-    //println!("Encoding: {:?}", encoding);
+    let input = "I love programming in Rust!";
+    let encoding = tokenizer.encode(input, false).map_err(anyhow::Error::msg)?;
+    println!("Encoding: {:?}", encoding);
 
     //let input_ids = encoding.get_ids();
     let input_ids = &[[0u32, 31414, 232, 328, 740, 1140, 12695, 69, 46078, 1588, 2]];
